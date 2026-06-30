@@ -10,8 +10,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env relative to project root (one level up from this file)
-load_dotenv(Path(__file__).parent / ".env")
+# Load .env from project root
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
@@ -28,7 +28,7 @@ logger = logging.getLogger("pa.bot")
 
 async def post_init(application):
     await init_db()
-    logger.info("DB initialized.")
+    logger.info("DB initialized (including conversation history table).")
 
 
 def main():

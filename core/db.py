@@ -32,6 +32,9 @@ def get_db() -> _DBContext:
 
 async def init_db():
     """Create all tables on first run. Idempotent."""
+    from core.conversation import init_conversation_table
+    await init_conversation_table()
+
     async with get_db() as db:
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS ideas (

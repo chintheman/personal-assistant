@@ -72,8 +72,7 @@ def fmt_digest(digest: dict) -> str:
                 lines.append(f"    {link['summary']}")
 
     lines.append(
-        "\n<i>Commands: <code>archive i3</code> · <code>archive l7</code> · "
-        "<code>snooze i3 7d</code> · <code>read l7</code></i>"
+        "\n<i>Just reply naturally — \"delete idea 3\", \"snooze link 7 for a week\", \"mark link 2 read\"</i>"
     )
     return "\n".join(lines)
 

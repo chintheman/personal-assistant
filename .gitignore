@@ -1,0 +1,19 @@
+# Environment
+.env
+credentials/token.json
+credentials/google_credentials.json
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Data
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# OS
+.DS_Store
+logs/

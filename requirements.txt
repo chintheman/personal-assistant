@@ -1,0 +1,10 @@
+python-telegram-bot==20.8
+litellm
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+aiohttp
+python-dotenv
+aiosqlite
+beautifulsoup4
+httpx

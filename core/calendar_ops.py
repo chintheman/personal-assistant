@@ -8,33 +8,16 @@ import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
-CREDS_PATH = os.getenv("GOOGLE_CALENDAR_CREDS_PATH", "credentials/google_credentials.json")
-TOKEN_PATH = os.getenv("GOOGLE_TOKEN_PATH", "credentials/token.json")
+from core.google_auth import get_google_service
+
 TZ = ZoneInfo(os.getenv("PA_TIMEZONE", "Asia/Singapore"))
 CALENDAR_ID = "primary"
 
 
 def _get_service():
-    creds = None
-    if os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(CREDS_PATH, SCOPES)
-            creds = flow.run_local_server(port=0)
-        os.makedirs(os.path.dirname(TOKEN_PATH), exist_ok=True)
-        with open(TOKEN_PATH, "w") as f:
-            f.write(creds.to_json())
-    return build("calendar", "v3", credentials=creds, cache_discovery=False)
+    return get_google_service("calendar", "v3")
 
 
 def _now_local() -> datetime:

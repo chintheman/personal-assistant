@@ -23,7 +23,7 @@ from bot.formatters import fmt_briefing
 
 
 async def run():
-    briefing = build_morning_briefing()
+    briefing = await build_morning_briefing()
 
     if not briefing:
         # No events today — stay silent as spec'd

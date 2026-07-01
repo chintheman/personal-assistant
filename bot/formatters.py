@@ -17,6 +17,13 @@ def _local_time(iso: str) -> str:
         return iso
 
 
+def _local_date(iso: str) -> str:
+    try:
+        return datetime.fromisoformat(iso).astimezone(TZ).strftime("%a %d %b")
+    except Exception:
+        return iso
+
+
 def fmt_briefing(briefing: dict) -> str:
     lines = [f"☀️ <b>Good morning! Here's your {briefing['date']} agenda:</b>\n"]
     for ev in briefing["events"]:
@@ -29,6 +36,12 @@ def fmt_briefing(briefing: dict) -> str:
         lines.append("\n⚠️ <b>Conflicts detected:</b>")
         for a, b in briefing["conflicts"]:
             lines.append(f"  ↔ {a['title']} ↔ {b['title']}")
+
+    due_todos = briefing.get("due_todos") or []
+    if due_todos:
+        lines.append("\n✅ <b>Due today / overdue:</b>")
+        for t in due_todos:
+            lines.append(f"  <code>#{t['id']}</code> [{t.get('priority', 'medium')}] {t['text']}")
 
     lines.append(f"\n{briefing['event_count']} event{'s' if briefing['event_count'] != 1 else ''} today. Have a great one! 🚀")
     return "\n".join(lines)
@@ -56,8 +69,14 @@ def fmt_digest(digest: dict) -> str:
 
     lines = ["📬 <b>Daily Digest</b>\n"]
 
+    if digest.get("todos"):
+        lines.append("✅ <b>Todos</b>")
+        for t in digest["todos"]:
+            due = f" · due {_local_date(t['due_at'])}" if t.get("due_at") else ""
+            lines.append(f"  <code>#{t['id']}</code> [{t.get('priority', 'medium')}]{due} {t['text']}")
+
     if digest["ideas"]:
-        lines.append("💡 <b>Ideas</b>")
+        lines.append("\n💡 <b>Ideas</b>")
         for idea in digest["ideas"]:
             display = idea.get("summary") or idea["text"][:80]
             tags = f"[{idea['tags']}]" if idea.get("tags") else ""
@@ -71,8 +90,14 @@ def fmt_digest(digest: dict) -> str:
             if link.get("summary"):
                 lines.append(f"    {link['summary']}")
 
+    if digest.get("habits"):
+        lines.append("\n📊 <b>Habits</b>")
+        for h in digest["habits"]:
+            mark = "✅" if h["logged_today"] else "⬜"
+            lines.append(f"  {mark} {h['name']} — {h['streak']} day streak")
+
     lines.append(
-        "\n<i>Just reply naturally — \"delete idea 3\", \"snooze link 7 for a week\", \"mark link 2 read\"</i>"
+        "\n<i>Just reply naturally — \"complete todo 3\", \"delete idea 3\", \"snooze link 7 for a week\", \"mark link 2 read\"</i>"
     )
     return "\n".join(lines)
 

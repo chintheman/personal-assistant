@@ -248,12 +248,134 @@ TOOLS = [
             }
         }
     },
+    # ── Todos ─────────────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "todo_capture",
+            "description": "Create a new to-do/task. Use when the user wants to remember to DO something (actionable), as opposed to a passing thought (use idea_capture for those).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "The task text"},
+                    "due": {"type": "string", "description": "Optional due date: natural language ('tomorrow', 'next friday', 'in 3 days') or ISO8601"},
+                    "priority": {"type": "string", "enum": ["high", "medium", "low"], "description": "Optional; inferred from the text if omitted"},
+                    "recurrence": {"type": "string", "description": "Optional recurrence, e.g. 'daily', 'every monday', 'weekdays', 'weekly'"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "todo_complete",
+            "description": "Mark a to-do as done by its numeric ID. If it's recurring, automatically creates the next occurrence.",
+            "parameters": {
+                "type": "object",
+                "properties": {"todo_id": {"type": "integer"}},
+                "required": ["todo_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "todo_delete",
+            "description": "Abandon/delete a to-do without completing it.",
+            "parameters": {
+                "type": "object",
+                "properties": {"todo_id": {"type": "integer"}},
+                "required": ["todo_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "todo_update",
+            "description": "Change a to-do's due date and/or priority.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "todo_id": {"type": "integer"},
+                    "due": {"type": "string", "description": "New due date: natural language or ISO8601"},
+                    "priority": {"type": "string", "enum": ["high", "medium", "low"]}
+                },
+                "required": ["todo_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "todo_query",
+            "description": "List or search to-dos. Use for 'show my todos', 'what's due today', 'high priority tasks', 'todos about X'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search keywords, or empty string for all open todos"},
+                    "due_only": {"type": "boolean", "default": False, "description": "If true, only show todos due today or overdue"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "todo_schedule",
+            "description": "Time-block a to-do onto the calendar: finds the next free slot of the given duration and creates a linked calendar event.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "todo_id": {"type": "integer"},
+                    "duration_minutes": {"type": "integer"}
+                },
+                "required": ["todo_id", "duration_minutes"]
+            }
+        }
+    },
+    # ── Habits ────────────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "habit_log",
+            "description": "Log that a habit/routine happened today (e.g. 'did my workout', 'meditated', 'read before bed'). Idempotent — logging the same habit twice in a day is a no-op.",
+            "parameters": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "habit_query",
+            "description": "Show tracked habits with their current streaks. Use for 'how's my streak', 'show my habits'.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    # ── Email ─────────────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "email_digest",
+            "description": "Fetch and triage recent unread email: summarizes each and flags which need action. Read-only — never sends, drafts, labels, or deletes anything.",
+            "parameters": {
+                "type": "object",
+                "properties": {"limit": {"type": "integer", "default": 10}},
+                "required": []
+            }
+        }
+    },
     # ── Digest ────────────────────────────────────────────────────────────────
     {
         "type": "function",
         "function": {
             "name": "digest_get",
-            "description": "Get the current digest: unread links and open ideas. Use for 'show digest', 'what's on my plate', 'backlog'.",
+            "description": "Get the current digest: open todos, unread links, open ideas, and habit streaks. Use for 'show digest', 'what's on my plate', 'backlog'.",
             "parameters": {"type": "object", "properties": {}, "required": []}
         }
     },
@@ -498,10 +620,136 @@ async def _execute_tool(name: str, args: dict) -> str:
             wake_str = wake_at.strftime("%d %b at %I:%M %p")
             return f"Snoozed link #{args['link_id']} until {wake_str}."
 
+        elif name == "todo_capture":
+            from core.todos import capture_todo
+            result = await capture_todo(
+                text=args["text"], due=args.get("due"),
+                priority=args.get("priority"), recurrence=args.get("recurrence"),
+            )
+            due_str = ""
+            if result["due_at"]:
+                due_str = f" · due {datetime.fromisoformat(result['due_at']).astimezone(TZ).strftime('%a %d %b')}"
+            rec_str = f" · repeats {result['recurrence']}" if result["recurrence"] else ""
+            return (f"✅ Todo #{result['id']} added [{result['tag']}, {result['priority']}]"
+                    f"{due_str}{rec_str}: {args['text']}")
+
+        elif name == "todo_complete":
+            from core.todos import complete_todo as _complete_todo
+            result = await _complete_todo(args["todo_id"])
+            if not result["ok"]:
+                return f"❌ No todo found with ID {args['todo_id']}."
+            msg = f"✅ Completed todo #{args['todo_id']}."
+            if result.get("next_id"):
+                msg += f" Recurring — next occurrence created as #{result['next_id']}."
+            return msg
+
+        elif name == "todo_delete":
+            from core.db import archive_todo
+            await archive_todo(args["todo_id"])
+            return f"🗑️ Deleted todo #{args['todo_id']}."
+
+        elif name == "todo_update":
+            from core.db import update_todo
+            from core.todos import parse_due_date
+            fields = {}
+            if args.get("due"):
+                fields["due_at"] = parse_due_date(args["due"])
+            if args.get("priority"):
+                fields["priority"] = args["priority"]
+            if not fields:
+                return "Nothing to update."
+            await update_todo(args["todo_id"], **fields)
+            return f"✅ Updated todo #{args['todo_id']}."
+
+        elif name == "todo_query":
+            from core.db import get_open_todos, search_todos, get_due_todos
+            q = args.get("query", "")
+            if args.get("due_only"):
+                todos = await get_due_todos(datetime.now(TZ).isoformat())
+            elif q:
+                todos = await search_todos(q)
+            else:
+                todos = await get_open_todos(limit=20)
+            if not todos:
+                return "No todos found." + (f" Searched for: '{q}'" if q else "")
+            lines = [f"✅ Todos ({len(todos)} found):"]
+            for t in todos:
+                due_str = ""
+                if t.get("due_at"):
+                    try:
+                        due_str = f" · due {datetime.fromisoformat(t['due_at']).astimezone(TZ).strftime('%a %d %b')}"
+                    except Exception:
+                        pass
+                rec_str = " 🔁" if t.get("recurrence") else ""
+                lines.append(f"• #{t['id']} [{t.get('priority', 'medium')}] [{t.get('tags', 'misc')}]{due_str}{rec_str} {t['text']}")
+            return "\n".join(lines)
+
+        elif name == "todo_schedule":
+            from core.db import get_todo, set_todo_calendar_event
+            from core.calendar_ops import find_free_slots, create_event
+            todo = await get_todo(args["todo_id"])
+            if not todo:
+                return f"❌ No todo found with ID {args['todo_id']}."
+            slots = find_free_slots(duration_minutes=args["duration_minutes"], within_days=7)
+            if not slots:
+                return "No free slots found in the next 7 days."
+            slot = slots[0]
+            ev = create_event(title=f"[Todo] {todo['text']}", start=slot["start"], end=slot["end"])
+            await set_todo_calendar_event(args["todo_id"], ev["id"])
+            start_dt = datetime.fromisoformat(ev["start"]).astimezone(TZ)
+            return f"📌 Scheduled todo #{args['todo_id']} → {start_dt.strftime('%a %d %b, %I:%M %p')}"
+
+        elif name == "habit_log":
+            from core.habits import log_habit as _log_habit
+            result = await _log_habit(args["text"])
+            if not result["newly_logged"]:
+                return f"Already logged '{result['habit']}' today. Current streak: {result['streak']} 🔥"
+            return f"✅ Logged '{result['habit']}'. Streak: {result['streak']} 🔥"
+
+        elif name == "habit_query":
+            from core.habits import get_habit_summary
+            summary = await get_habit_summary()
+            if not summary:
+                return "No habits tracked yet — just mention one naturally (e.g. 'did my workout') to start."
+            lines = ["📊 Habits:"]
+            for h in summary:
+                mark = "✅" if h["logged_today"] else "⬜"
+                lines.append(f"{mark} {h['name']} — {h['streak']} day streak")
+            return "\n".join(lines)
+
+        elif name == "email_digest":
+            from core.email_ops import fetch_recent_messages
+            from core.llm import triage_emails
+            messages = fetch_recent_messages(max_results=args.get("limit", 10))
+            if not messages:
+                return "📭 Inbox zero — no unread mail."
+            emails_text = "\n".join(
+                f"[{i}] From: {m['from']} | Subject: {m['subject']} | {m['snippet']}"
+                for i, m in enumerate(messages)
+            )
+            triaged = {t.get("index"): t for t in await triage_emails(emails_text)}
+            lines = [f"📧 {len(messages)} unread:"]
+            for i, m in enumerate(messages):
+                t = triaged.get(i, {})
+                flag = "🔴" if t.get("action_needed") else "⚪"
+                summary = t.get("summary") or m["subject"]
+                lines.append(f"{flag} {m['from'].split('<')[0].strip()}: {summary}")
+            return "\n".join(lines)
+
         elif name == "digest_get":
             from core.digest import build_digest
             digest = await build_digest()
             parts = []
+            if digest["todos"]:
+                parts.append(f"✅ Todos ({len(digest['todos'])}):")
+                for t in digest["todos"]:
+                    due_str = ""
+                    if t.get("due_at"):
+                        try:
+                            due_str = f" · due {datetime.fromisoformat(t['due_at']).astimezone(TZ).strftime('%a %d %b')}"
+                        except Exception:
+                            pass
+                    parts.append(f"  #{t['id']} [{t.get('priority', 'medium')}]{due_str} {t['text']}")
             if digest["ideas"]:
                 parts.append(f"💡 Ideas ({len(digest['ideas'])}):")
                 for idea in digest["ideas"]:
@@ -515,6 +763,11 @@ async def _execute_tool(name: str, args: dict) -> str:
                     title = lnk.get("title") or lnk["url"][:40]
                     summary = lnk.get("summary", "")[:80]
                     parts.append(f"  #{lnk['id']} [{tag}] {title}\n    {summary}")
+            if digest["habits"]:
+                parts.append("📊 Habits:")
+                for h in digest["habits"]:
+                    mark = "✅" if h["logged_today"] else "⬜"
+                    parts.append(f"  {mark} {h['name']} — {h['streak']} day streak")
             if not parts:
                 return "Your backlog is clear — nothing pending."
             return "\n".join(parts)
@@ -544,23 +797,26 @@ def _build_system_prompt() -> str:
     now = datetime.now(TZ)
     return f"""You are a personal assistant for Chin (0xsteamboat). Today is {now.strftime('%A, %d %B %Y, %I:%M %p %Z')}.
 
-You have full tool access to manage calendar, ideas, and links. Every message should be reasoned about before responding:
+You have full tool access to manage calendar, todos, habits, ideas, links, and email. Every message should be reasoned about before responding:
 - Is this a command on something we just discussed? (use context from conversation history)
-- Is this a new capture? (idea or link)
+- Is this a new capture? (todo, idea, or link)
 - Is this a calendar action?
+- Is this a habit check-in?
 - Is this a query or question?
 
 Key behaviors:
-- When the user says "delete this", "archive that", "snooze this" — infer the item from context (what was just discussed/shown)
-- When capturing an idea or link, always call the appropriate tool — don't just reply with text
+- When the user says "delete this", "archive that", "snooze this", "complete this" — infer the item from context (what was just discussed/shown)
+- Todos vs ideas: a todo is an actionable task ("book the dentist", "pay rent") — use idea_capture only for passing thoughts/notes that aren't action items
+- When capturing a todo, idea, or link, always call the appropriate tool — don't just reply with text
 - When creating a calendar event, always check for conflicts and flag them immediately
+- If the user mentions doing a routine/habit ("went for a run", "meditated"), log it with habit_log — don't just acknowledge in text
 - Be concise. Confirm what you actually did, not what you're about to do.
 - For queries, show the data — don't just describe it.
 - If a request is ambiguous, make the most reasonable interpretation and do it.
 
-You manage three domains: Calendar (Google Calendar), Ideas (quick thoughts/notes), Links (read-later queue with summaries).
+You manage six domains: Calendar (Google Calendar), Todos (actionable tasks with due dates/priority/recurrence), Habits (streak tracking), Ideas (quick thoughts/notes), Links (read-later queue with summaries), Email (read-only Gmail triage).
 
-Do NOT capture "delete this please" or command-like messages as ideas. Reason about intent first."""
+Do NOT capture "delete this please" or command-like messages as ideas or todos. Reason about intent first."""
 
 
 # ─── MAIN AGENT LOOP ───────────────────────────────────────────────────────────

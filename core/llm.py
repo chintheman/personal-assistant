@@ -101,6 +101,65 @@ async def summarize_url_content(content: str) -> str:
     return await _chat(SUMMARIZE_URL_SYSTEM, content[:3000], max_tokens=150)
 
 
+# ─── TODO PRIORITY ─────────────────────────────────────────────────────────────
+
+PRIORITY_SYSTEM = """
+You are a priority classifier for a personal to-do list.
+Assign exactly one priority based on urgency/importance language and any deadline mentioned: high, medium, or low.
+Default to medium if unclear.
+
+Respond with JSON only: {"priority": "high"|"medium"|"low"}
+""".strip()
+
+
+async def infer_priority(text: str) -> str:
+    raw = await _chat(PRIORITY_SYSTEM, text[:500], max_tokens=20)
+    try:
+        p = json.loads(raw)["priority"]
+        return p if p in ("high", "medium", "low") else "medium"
+    except Exception:
+        return "medium"
+
+
+# ─── HABITS ─────────────────────────────────────────────────────────────────────
+
+HABIT_NAME_SYSTEM = """
+You normalize a freeform message into a short habit name (2-4 words, lowercase, no punctuation) for a habit tracker.
+Examples: "I finally did my workout today" -> "workout", "read for 20 min before bed" -> "reading", "meditated this morning" -> "meditation".
+
+Respond with JSON only: {"habit": "<name>"}
+""".strip()
+
+
+async def normalize_habit_name(text: str) -> str:
+    raw = await _chat(HABIT_NAME_SYSTEM, text[:300], max_tokens=20)
+    try:
+        return json.loads(raw)["habit"].strip().lower()
+    except Exception:
+        return text[:30].strip().lower()
+
+
+# ─── EMAIL TRIAGE ───────────────────────────────────────────────────────────────
+
+EMAIL_TRIAGE_SYSTEM = """
+You triage an email inbox for a personal assistant. You are given a numbered list of emails
+(sender, subject, snippet). For each one, decide if it genuinely needs the user's action
+(reply, decision, payment, deadline) versus FYI/noise (newsletter, notification, receipt).
+Write a one-line plain-English summary for each.
+
+Respond with JSON only:
+{"items": [{"index": 0, "action_needed": true|false, "summary": "<one line>"}]}
+""".strip()
+
+
+async def triage_emails(emails_text: str) -> list[dict]:
+    raw = await _chat(EMAIL_TRIAGE_SYSTEM, emails_text[:4000], max_tokens=600)
+    try:
+        return json.loads(raw)["items"]
+    except Exception:
+        return []
+
+
 # ─── CALENDAR NLU ──────────────────────────────────────────────────────────────
 
 CALENDAR_SYSTEM = """

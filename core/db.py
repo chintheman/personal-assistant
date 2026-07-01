@@ -76,6 +76,35 @@ async def init_db():
                 wake_at    TEXT NOT NULL,
                 resolved   INTEGER DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS todos (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                text               TEXT NOT NULL,
+                tags               TEXT,
+                priority           TEXT DEFAULT 'medium',   -- high | medium | low
+                due_at             TEXT,                    -- ISO8601, nullable
+                recurrence         TEXT,                    -- 'daily' | 'weekly:mon,wed' | 'monthly' | NULL
+                status             TEXT DEFAULT 'open',      -- open | done
+                calendar_event_id  TEXT,
+                captured_at        TEXT NOT NULL,
+                completed_at       TEXT,
+                archived           INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS habits (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL,
+                created_at  TEXT NOT NULL,
+                archived    INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS habit_logs (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                habit_id     INTEGER NOT NULL,
+                logged_date  TEXT NOT NULL,   -- YYYY-MM-DD, local date
+                logged_at    TEXT NOT NULL,   -- ISO8601 timestamp
+                UNIQUE(habit_id, logged_date)
+            );
         """)
         await db.commit()
 
@@ -213,6 +242,155 @@ async def get_due_snoozes() -> list[dict]:
             "SELECT * FROM snoozes WHERE resolved=0 AND wake_at <= ?",
             (datetime.utcnow().isoformat(),),
         )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+# ─── TODOS ─────────────────────────────────────────────────────────────────────
+
+_PRIORITY_ORDER_SQL = "CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 1 END"
+
+
+async def insert_todo(text: str, tags: str, priority: str, due_at: str | None, recurrence: str | None) -> int:
+    async with get_db() as db:
+        cur = await db.execute(
+            "INSERT INTO todos (text, tags, priority, due_at, recurrence, captured_at) VALUES (?,?,?,?,?,?)",
+            (text, tags, priority, due_at, recurrence, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_todo(todo_id: int) -> dict | None:
+    async with get_db() as db:
+        cur = await db.execute("SELECT * FROM todos WHERE id=?", (todo_id,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def get_open_todos(limit: int = 20) -> list[dict]:
+    """Open todos sorted by priority, then soonest due date (nulls last), then oldest first."""
+    async with get_db() as db:
+        cur = await db.execute(f"""
+            SELECT * FROM todos
+            WHERE status='open' AND archived=0
+            ORDER BY {_PRIORITY_ORDER_SQL} ASC,
+                     CASE WHEN due_at IS NULL THEN 1 ELSE 0 END ASC,
+                     due_at ASC,
+                     captured_at ASC
+            LIMIT ?
+        """, (limit,))
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_due_todos(as_of_iso: str) -> list[dict]:
+    """Open todos due today or overdue, as of the given ISO timestamp."""
+    async with get_db() as db:
+        cur = await db.execute("""
+            SELECT * FROM todos
+            WHERE status='open' AND archived=0 AND due_at IS NOT NULL AND due_at <= ?
+            ORDER BY due_at ASC
+        """, (as_of_iso,))
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def search_todos(query: str) -> list[dict]:
+    async with get_db() as db:
+        cur = await db.execute(
+            "SELECT * FROM todos WHERE status='open' AND archived=0 AND (text LIKE ? OR tags LIKE ?)",
+            (f"%{query}%", f"%{query}%"),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def complete_todo(todo_id: int):
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE todos SET status='done', completed_at=? WHERE id=?",
+            (datetime.utcnow().isoformat(), todo_id),
+        )
+        await db.commit()
+
+
+async def archive_todo(todo_id: int):
+    async with get_db() as db:
+        await db.execute("UPDATE todos SET archived=1 WHERE id=?", (todo_id,))
+        await db.commit()
+
+
+async def update_todo(todo_id: int, **fields):
+    """Dynamic update for allowed columns: due_at, priority, text."""
+    allowed = {"due_at", "priority", "text"}
+    fields = {k: v for k, v in fields.items() if k in allowed}
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k}=?" for k in fields)
+    async with get_db() as db:
+        await db.execute(f"UPDATE todos SET {set_clause} WHERE id=?", (*fields.values(), todo_id))
+        await db.commit()
+
+
+async def set_todo_calendar_event(todo_id: int, event_id: str):
+    async with get_db() as db:
+        await db.execute("UPDATE todos SET calendar_event_id=? WHERE id=?", (event_id, todo_id))
+        await db.commit()
+
+
+# ─── HABITS ────────────────────────────────────────────────────────────────────
+
+async def find_habit_by_name(name: str) -> dict | None:
+    async with get_db() as db:
+        cur = await db.execute(
+            "SELECT * FROM habits WHERE archived=0 AND lower(name)=lower(?) LIMIT 1", (name,)
+        )
+        row = await cur.fetchone()
+        if row:
+            return dict(row)
+        cur = await db.execute(
+            "SELECT * FROM habits WHERE archived=0 AND lower(name) LIKE lower(?) LIMIT 1", (f"%{name}%",)
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def create_habit(name: str) -> int:
+    async with get_db() as db:
+        cur = await db.execute(
+            "INSERT INTO habits (name, created_at) VALUES (?,?)",
+            (name, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def log_habit(habit_id: int, date_str: str, ts_iso: str) -> bool:
+    """Idempotent per day. Returns True if this created a new log entry."""
+    async with get_db() as db:
+        cur = await db.execute(
+            "INSERT OR IGNORE INTO habit_logs (habit_id, logged_date, logged_at) VALUES (?,?,?)",
+            (habit_id, date_str, ts_iso),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def get_habit_logs(habit_id: int, limit: int = 365) -> list[str]:
+    """Returns logged_date strings, newest first."""
+    async with get_db() as db:
+        cur = await db.execute(
+            "SELECT logged_date FROM habit_logs WHERE habit_id=? ORDER BY logged_date DESC LIMIT ?",
+            (habit_id, limit),
+        )
+        rows = await cur.fetchall()
+        return [r["logged_date"] for r in rows]
+
+
+async def get_all_habits() -> list[dict]:
+    async with get_db() as db:
+        cur = await db.execute("SELECT * FROM habits WHERE archived=0 ORDER BY name")
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
 

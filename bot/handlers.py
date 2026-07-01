@@ -46,11 +46,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 <b>Personal Assistant online.</b>\n\n"
         "Just talk to me naturally:\n"
+        "• Send a task → captured as a todo ('remind me to renew my passport by Friday')\n"
         "• Send a thought → captured as an idea\n"
         "• Send a URL → fetched, summarized, saved\n"
+        "• Mention a routine → logged as a habit ('did my workout today')\n"
         "• Calendar commands → 'what's on today', 'create meeting Friday 2pm'\n"
-        "• Queries → 'show my ideas', 'show unread links', 'what's on my plate'\n"
-        "• Triage → 'delete idea 3', 'snooze link 7 for 1 week', 'mark link 2 read'\n\n"
+        "• Queries → 'show my todos', 'what's due today', 'show my ideas', 'how's my streak', 'check my email'\n"
+        "• Triage → 'complete todo 3', 'delete idea 3', 'snooze link 7 for 1 week', 'mark link 2 read'\n"
+        "• Scheduling → 'block 30 min for todo 3'\n\n"
         "No special syntax needed — just tell me what you want.",
         parse_mode="HTML",
     )

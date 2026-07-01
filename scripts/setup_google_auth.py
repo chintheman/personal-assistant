@@ -21,9 +21,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 from google_auth_oauthlib.flow import Flow
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
-CREDS_PATH = os.getenv("GOOGLE_CALENDAR_CREDS_PATH", "credentials/google_credentials.json")
-TOKEN_PATH = os.getenv("GOOGLE_TOKEN_PATH", "credentials/token.json")
+from core.google_auth import SCOPES, CREDS_PATH, TOKEN_PATH
 
 
 def main():

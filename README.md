@@ -1,5 +1,7 @@
 # Personal Assistant
 
+Retired 30 June 2026. This is the first version of a Telegram assistant; the current version runs privately inside Hermes. Kept for reference.
+
 A Telegram-based personal assistant. **Hermes is the brain.** The bot is a thin interface.
 
 ## Architecture
